@@ -30,6 +30,7 @@ export interface AllowedRoot {
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  runnerType?: 'container' | 'host' | 'dynamic'; // 'host' runs claude CLI directly on macOS host; 'dynamic' auto-selects based on prompt
 }
 
 export interface RegisteredGroup {
@@ -95,6 +96,8 @@ export interface Channel {
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
+  // Optional: send a local file as an attachment.
+  sendFile?(jid: string, filePath: string, filename?: string, title?: string): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages

@@ -26,6 +26,7 @@ import {
   writeGroupsSnapshot,
   writeTasksSnapshot,
 } from './container-runner.js';
+import { classifyRunner, runHostAgent } from './host-runner.js';
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
@@ -385,21 +386,33 @@ async function runAgent(
       }
     : undefined;
 
-  try {
-    const output = await runContainerAgent(
-      group,
-      {
-        prompt,
-        sessionId,
-        groupFolder: group.folder,
-        chatJid,
-        isMain,
-        assistantName: ASSISTANT_NAME,
-      },
-      (proc, containerName) =>
-        queue.registerProcess(chatJid, proc, containerName, group.folder),
-      wrappedOnOutput,
+  const runnerType = group.containerConfig?.runnerType ?? 'container';
+  const resolvedRunner =
+    runnerType === 'dynamic'
+      ? await classifyRunner(prompt, CREDENTIAL_PROXY_PORT)
+      : runnerType;
+  if (runnerType === 'dynamic') {
+    logger.info(
+      { group: group.name, resolvedRunner },
+      'Dynamic runner classification',
     );
+  }
+  const useHostRunner = resolvedRunner === 'host';
+  const agentInput = {
+    prompt,
+    sessionId,
+    groupFolder: group.folder,
+    chatJid,
+    isMain,
+    assistantName: ASSISTANT_NAME,
+  };
+  const onProcessFn = (proc: import('child_process').ChildProcess, name: string) =>
+    queue.registerProcess(chatJid, proc, name, group.folder);
+
+  try {
+    const output = await (useHostRunner
+      ? runHostAgent(group, agentInput, onProcessFn, wrappedOnOutput)
+      : runContainerAgent(group, agentInput, onProcessFn, wrappedOnOutput));
 
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;
@@ -574,7 +587,10 @@ function ensureContainerSystemRunning(): void {
 async function main(): Promise<void> {
   ensureContainerSystemRunning();
   await startCredentialProxy(CREDENTIAL_PROXY_PORT, PROXY_BIND_HOST);
-  logger.info({ host: PROXY_BIND_HOST, port: CREDENTIAL_PROXY_PORT }, 'Credential proxy listening');
+  logger.info(
+    { host: PROXY_BIND_HOST, port: CREDENTIAL_PROXY_PORT },
+    'Credential proxy listening',
+  );
   initDatabase();
   logger.info('Database initialized');
   loadState();
@@ -722,6 +738,12 @@ async function main(): Promise<void> {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
+    },
+    sendFile: async (jid, filePath, filename, title) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      if (!channel.sendFile) throw new Error(`Channel ${channel.name} does not support sendFile`);
+      return channel.sendFile(jid, filePath, filename, title);
     },
     registeredGroups: () => registeredGroups,
     registerGroup,

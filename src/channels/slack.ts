@@ -1,3 +1,5 @@
+import fs from 'fs';
+
 import { App, LogLevel } from '@slack/bolt';
 import type { GenericMessageEvent, BotMessageEvent } from '@slack/types';
 
@@ -187,6 +189,23 @@ export class SlackChannel implements Channel {
         { jid, err, queueSize: this.outgoingQueue.length },
         'Failed to send Slack message, queued',
       );
+    }
+  }
+
+  async sendFile(jid: string, filePath: string, filename?: string, title?: string): Promise<void> {
+    const channelId = jid.replace(/^slack:/, '');
+    const name = filename ?? filePath.split('/').pop() ?? 'file';
+    try {
+      await this.app.client.filesUploadV2({
+        channel_id: channelId,
+        file: fs.createReadStream(filePath),
+        filename: name,
+        title: title ?? name,
+      });
+      logger.info({ jid, filePath }, 'Slack file sent');
+    } catch (err) {
+      logger.error({ jid, filePath, err }, 'Failed to send Slack file');
+      throw err;
     }
   }
 

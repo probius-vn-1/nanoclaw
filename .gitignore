@@ -17,6 +17,8 @@ groups/main/*
 groups/global/*
 !groups/main/CLAUDE.md
 !groups/global/CLAUDE.md
+!groups/global/runner-classifier.md
+!groups/global/host-capabilities.md
 
 # Secrets
 *.keys.json
