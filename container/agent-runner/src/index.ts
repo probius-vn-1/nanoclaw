@@ -486,8 +486,8 @@ async function runQuery(
           },
         },
         gmail: {
-          command: 'npx',
-          args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
+          command: '/usr/local/bin/gmail-mcp',
+          args: [],
         },
       },
       hooks: {
