@@ -97,7 +97,12 @@ export interface Channel {
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
   // Optional: send a local file as an attachment.
-  sendFile?(jid: string, filePath: string, filename?: string, title?: string): Promise<void>;
+  sendFile?(
+    jid: string,
+    filePath: string,
+    filename?: string,
+    title?: string,
+  ): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages

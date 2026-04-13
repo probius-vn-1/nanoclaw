@@ -406,8 +406,10 @@ async function runAgent(
     isMain,
     assistantName: ASSISTANT_NAME,
   };
-  const onProcessFn = (proc: import('child_process').ChildProcess, name: string) =>
-    queue.registerProcess(chatJid, proc, name, group.folder);
+  const onProcessFn = (
+    proc: import('child_process').ChildProcess,
+    name: string,
+  ) => queue.registerProcess(chatJid, proc, name, group.folder);
 
   try {
     const output = await (useHostRunner
@@ -742,7 +744,8 @@ async function main(): Promise<void> {
     sendFile: async (jid, filePath, filename, title) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      if (!channel.sendFile) throw new Error(`Channel ${channel.name} does not support sendFile`);
+      if (!channel.sendFile)
+        throw new Error(`Channel ${channel.name} does not support sendFile`);
       return channel.sendFile(jid, filePath, filename, title);
     },
     registeredGroups: () => registeredGroups,

@@ -9,7 +9,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { CONTAINER_TIMEOUT, DATA_DIR, GROUPS_DIR, IDLE_TIMEOUT } from './config.js';
+import {
+  CONTAINER_TIMEOUT,
+  DATA_DIR,
+  GROUPS_DIR,
+  IDLE_TIMEOUT,
+} from './config.js';
 import { ContainerInput, ContainerOutput } from './container-runner.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
@@ -17,15 +22,41 @@ import { RegisteredGroup } from './types.js';
 
 // Fallback keyword list used when the classifier API call fails.
 const HOST_KEYWORDS = [
-  'browser', 'chrome', 'safari', 'firefox', 'chromium',
-  'webpage', 'web page', 'website', 'open url', 'open link',
-  'navigate to', 'click on', 'scroll down', 'scroll up',
-  'screenshot', 'scrape', 'crawl', 'fill form', 'submit form',
-  'puppeteer', 'playwright', 'selenium',
-  'applescript', 'open app', 'finder', 'desktop app',
-  'menu bar', 'right-click', 'double-click', 'drag and drop',
-  'system preferences', 'system settings',
-  '~/downloads', '~/desktop', '~/documents',
+  'browser',
+  'chrome',
+  'safari',
+  'firefox',
+  'chromium',
+  'webpage',
+  'web page',
+  'website',
+  'open url',
+  'open link',
+  'navigate to',
+  'click on',
+  'scroll down',
+  'scroll up',
+  'screenshot',
+  'scrape',
+  'crawl',
+  'fill form',
+  'submit form',
+  'puppeteer',
+  'playwright',
+  'selenium',
+  'applescript',
+  'open app',
+  'finder',
+  'desktop app',
+  'menu bar',
+  'right-click',
+  'double-click',
+  'drag and drop',
+  'system preferences',
+  'system settings',
+  '~/downloads',
+  '~/desktop',
+  '~/documents',
 ];
 
 function keywordClassify(prompt: string): 'container' | 'host' {
@@ -33,7 +64,11 @@ function keywordClassify(prompt: string): 'container' | 'host' {
   return HOST_KEYWORDS.some((kw) => lower.includes(kw)) ? 'host' : 'container';
 }
 
-const CLASSIFIER_RULES_FILE = path.join(GROUPS_DIR, 'global', 'runner-classifier.md');
+const CLASSIFIER_RULES_FILE = path.join(
+  GROUPS_DIR,
+  'global',
+  'runner-classifier.md',
+);
 
 const CLASSIFIER_SYSTEM_DEFAULT = `You are a routing classifier for an AI assistant.
 Decide whether the user's request requires running natively on a macOS host, or can run inside a sandboxed Linux container.
@@ -48,7 +83,11 @@ Choose "container" for everything else: coding, analysis, writing, API calls, fi
 
 Reply with ONLY a JSON object, nothing else: {"runner":"host"} or {"runner":"container"}`;
 
-const HOST_CAPABILITIES_FILE = path.join(GROUPS_DIR, 'global', 'host-capabilities.md');
+const HOST_CAPABILITIES_FILE = path.join(
+  GROUPS_DIR,
+  'global',
+  'host-capabilities.md',
+);
 
 function loadHostCapabilities(): string | null {
   try {
@@ -115,7 +154,8 @@ export async function classifyRunner(
     const data = (await res.json()) as {
       content?: Array<{ type: string; text?: string }>;
     };
-    const text = data.content?.find((b) => b.type === 'text')?.text?.trim() ?? '';
+    const text =
+      data.content?.find((b) => b.type === 'text')?.text?.trim() ?? '';
     const parsed = JSON.parse(text) as { runner?: string };
     if (parsed.runner === 'host' || parsed.runner === 'container') {
       return parsed.runner;
@@ -138,7 +178,10 @@ async function ensureChrome(): Promise<void> {
     // Chrome not running — launch it
     logger.info('Chrome not running, launching it for host agent');
     const { spawn: spawnProc } = await import('child_process');
-    spawnProc('open', ['-a', 'Google Chrome'], { detached: true, stdio: 'ignore' }).unref();
+    spawnProc('open', ['-a', 'Google Chrome'], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
     // Give Chrome a moment to initialize before the claude process connects
     await new Promise((r) => setTimeout(r, 3000));
   }
@@ -194,11 +237,13 @@ export async function runHostAgent(
 
   const args = [
     '-p',
-    '--output-format', 'stream-json',
+    '--output-format',
+    'stream-json',
     '--verbose',
     '--dangerously-skip-permissions',
     '--chrome', // Chrome extension integration — gives agent navigate/click/screenshot tools
-    '--append-system-prompt', dynamicContext,
+    '--append-system-prompt',
+    dynamicContext,
   ];
 
   if (input.sessionId) {
@@ -230,7 +275,9 @@ export async function runHostAgent(
           '/opt/homebrew/opt/node@22/bin',
           `${os.homedir()}/.local/bin`,
           process.env.PATH ?? '',
-        ].filter(Boolean).join(':'),
+        ]
+          .filter(Boolean)
+          .join(':'),
       },
     });
 
@@ -253,7 +300,11 @@ export async function runHostAgent(
       logger.error({ group: group.name, runId }, 'Host agent timeout, killing');
       proc.kill('SIGTERM');
       setTimeout(() => {
-        try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* already gone */
+        }
       }, 5000);
     };
 
