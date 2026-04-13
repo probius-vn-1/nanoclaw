@@ -25,7 +25,7 @@ tell application "iTerm"
     set claudeTab to (create tab with default profile of newWindow)
     set claudeSession to current session of claudeTab
     tell claudeSession
-        write text "cd /Users/probius/VN-1-Probius/nanoclaw && claude"
+        write text "cd /Users/probius/VN-1-Probius/nanoclaw && claude --continue"
     end tell
 
     -- Logs tab
@@ -40,7 +40,7 @@ tell application "iTerm"
 
     -- Enable remote control on claude session
     tell claudeSession
-        write text "/remote-control --name vn-1-probius-nanoclaw"
+        write text "/remote-control vn-1-probius-nanoclaw"
     end tell
 
     -- Close status tab and land on claude (now tab 1 after status closes)
