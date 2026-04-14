@@ -89,6 +89,9 @@ export class SlackChannel implements Channel {
       const timestamp = new Date(parseFloat(msg.ts) * 1000).toISOString();
       const isGroup = msg.channel_type !== 'im';
 
+      // Ignore DMs — only private channels are supported
+      if (!isGroup) return;
+
       // Always report metadata for group discovery
       this.opts.onChatMetadata(jid, timestamp, undefined, 'slack', isGroup);
 
