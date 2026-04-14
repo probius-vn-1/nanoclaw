@@ -217,6 +217,18 @@ export async function runHostAgent(
   const claudeBin = findClaudeBinary();
   const runId = `host-${group.folder}-${Date.now()}`;
 
+  // Sync agents from container/agents/ into the group's .claude/agents/
+  const agentsSrc = path.join(process.cwd(), 'container', 'agents');
+  const agentsDst = path.join(groupDir, '.claude', 'agents');
+  if (fs.existsSync(agentsSrc)) {
+    fs.mkdirSync(agentsDst, { recursive: true });
+    for (const agentFile of fs.readdirSync(agentsSrc)) {
+      const srcFile = path.join(agentsSrc, agentFile);
+      if (!fs.statSync(srcFile).isFile()) continue;
+      fs.copyFileSync(srcFile, path.join(agentsDst, agentFile));
+    }
+  }
+
   // -p with no inline prompt reads from stdin
   await ensureChrome();
 
