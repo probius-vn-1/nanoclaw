@@ -57,6 +57,8 @@ const HOST_KEYWORDS = [
   '~/downloads',
   '~/desktop',
   '~/documents',
+  'linkedin',
+  'linkedin.com',
 ];
 
 function keywordClassify(prompt: string): 'container' | 'host' {

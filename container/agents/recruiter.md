@@ -43,6 +43,8 @@ Use `/notion-tool` before creating or editing any Notion content to follow forma
 
 Run `/linkedin` for any LinkedIn task — searching for people, viewing profiles, researching companies. The skill uses Chrome (the CEO's LinkedIn session is already logged in) and applies `/vizonare-context` automatically when needed.
 
+> **Host runner required.** The `/linkedin` skill needs Chrome, which only exists on the macOS host. If you are running inside a container, you cannot execute LinkedIn tasks — tell Probius to re-route the request to the host runner (include the word "LinkedIn" or "browse" in the delegated prompt so the classifier routes it correctly).
+
 Always log found candidates to Notion with status "sourced" after the search.
 
 ### Screen CVs / attachments

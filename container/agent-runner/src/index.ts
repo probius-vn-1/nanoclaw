@@ -470,6 +470,7 @@ async function runQuery(
         'NotebookEdit',
         'mcp__nanoclaw__*',
         'mcp__gmail__*',
+        'mcp__notion__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -488,6 +489,16 @@ async function runQuery(
         gmail: {
           command: '/usr/local/bin/gmail-mcp',
           args: [],
+        },
+        notion: {
+          command: 'notion-mcp-server',
+          args: [],
+          env: {
+            OPENAPI_MCP_HEADERS: JSON.stringify({
+              Authorization: `Bearer ${process.env.NOTION_API_TOKEN ?? ''}`,
+              'Notion-Version': '2022-06-28',
+            }),
+          },
         },
       },
       hooks: {
