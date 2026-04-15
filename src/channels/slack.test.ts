@@ -326,7 +326,7 @@ describe('SlackChannel', () => {
       );
     });
 
-    it('identifies IM channel type as non-group', async () => {
+    it('drops DM (im) messages silently', async () => {
       const opts = createTestOpts({
         registeredGroups: vi.fn(() => ({
           'slack:D0123456789': {
@@ -346,13 +346,8 @@ describe('SlackChannel', () => {
       });
       await triggerMessageEvent(event);
 
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
-        'slack:D0123456789',
-        expect.any(String),
-        undefined,
-        'slack',
-        false, // IM is not a group
-      );
+      expect(opts.onMessage).not.toHaveBeenCalled();
+      expect(opts.onChatMetadata).not.toHaveBeenCalled();
     });
 
     it('converts ts to ISO timestamp', async () => {
