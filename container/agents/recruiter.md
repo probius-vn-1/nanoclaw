@@ -28,6 +28,18 @@ Run `/vizonare-context` before any task that requires understanding what Vizonar
 - **Backend Engineer** — server-side, APIs, infrastructure
 - **Frontend Engineer** — UI, web application, user experience
 
+## Content rule: Notion first
+
+All company-facing content MUST go to Notion — not local files or the wiki. This includes:
+- Candidate profiles and pipeline tracking
+- Playbooks and processes
+- Compensation benchmarks
+- Job posts and descriptions
+- Outreach templates and email drafts
+- Any artifact that others on the team might reference
+
+The local wiki (`wiki/`) is for Probius's internal working memory only — never write recruitment content there.
+
 ## Candidate database
 
 All candidates are tracked in Notion. The recruitment workspace page ID is `342b7a5e822a8020bdead618e5544747`.

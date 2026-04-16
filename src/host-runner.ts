@@ -16,6 +16,7 @@ import {
   IDLE_TIMEOUT,
 } from './config.js';
 import { ContainerInput, ContainerOutput } from './container-runner.js';
+import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -115,33 +116,30 @@ Reply with ONLY a JSON object, nothing else: {"runner":"host"} or {"runner":"con
 
 /**
  * Classify whether a prompt should run on the host or in a container.
- * Uses a fast Haiku call through the credential proxy; falls back to
- * keyword matching if the API call fails or times out.
+ * Uses a Sonnet call with a dedicated API key (CLASSIFIER_API_KEY);
+ * falls back to keyword matching if the key is missing or the call fails.
  */
 export async function classifyRunner(
   prompt: string,
-  proxyPort: number,
+  _proxyPort: number,
 ): Promise<'container' | 'host'> {
   try {
-    const { detectAuthMode } = await import('./credential-proxy.js');
-    const authMode = detectAuthMode();
-    const authHeaders: Record<string, string> =
-      authMode === 'api-key'
-        ? { 'x-api-key': 'placeholder' }
-        : { authorization: 'Bearer placeholder' };
+    const secrets = readEnvFile(['CLASSIFIER_API_KEY']);
+    const apiKey = secrets.CLASSIFIER_API_KEY;
+    if (!apiKey) throw new Error('CLASSIFIER_API_KEY not set');
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
 
-    const res = await fetch(`http://localhost:${proxyPort}/v1/messages`, {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'anthropic-version': '2023-06-01',
-        ...authHeaders,
+        'x-api-key': apiKey,
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-6',
         max_tokens: 20,
         system: loadClassifierSystem(),
         messages: [{ role: 'user', content: prompt }],

@@ -1,9 +1,13 @@
 import fs from 'fs';
+import path from 'path';
+import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
 
 import { App, LogLevel } from '@slack/bolt';
 import type { GenericMessageEvent, BotMessageEvent } from '@slack/types';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { updateChatName } from '../db.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
@@ -34,6 +38,7 @@ export class SlackChannel implements Channel {
   name = 'slack';
 
   private app: App;
+  private botToken: string;
   private botUserId: string | undefined;
   private connected = false;
   private outgoingQueue: Array<{ jid: string; text: string }> = [];
@@ -57,6 +62,8 @@ export class SlackChannel implements Channel {
       );
     }
 
+    this.botToken = botToken;
+
     this.app = new App({
       token: botToken,
       appToken,
@@ -67,6 +74,40 @@ export class SlackChannel implements Channel {
     this.setupEventHandlers();
   }
 
+  /**
+   * Download a Slack file to the group's attachments directory.
+   * Returns the local path (relative to group folder) or null on failure.
+   */
+  private async downloadFile(
+    fileUrl: string,
+    filename: string,
+    groupFolder: string,
+  ): Promise<string | null> {
+    try {
+      const groupDir = resolveGroupFolderPath(groupFolder);
+      const attachDir = path.join(groupDir, 'attachments');
+      fs.mkdirSync(attachDir, { recursive: true });
+
+      // Deduplicate filenames with timestamp prefix
+      const safeName = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const destPath = path.join(attachDir, safeName);
+
+      const res = await fetch(fileUrl, {
+        headers: { authorization: `Bearer ${this.botToken}` },
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`Download HTTP ${res.status}`);
+      }
+
+      await pipeline(Readable.fromWeb(res.body as any), fs.createWriteStream(destPath));
+      logger.info({ filename: safeName, groupFolder }, 'Slack file downloaded');
+      return `attachments/${safeName}`;
+    } catch (err) {
+      logger.error({ err, filename, groupFolder }, 'Failed to download Slack file');
+      return null;
+    }
+  }
+
   private setupEventHandlers(): void {
     // Use app.event('message') instead of app.message() to capture all
     // message subtypes including bot_message (needed to track our own output)
@@ -74,12 +115,22 @@ export class SlackChannel implements Channel {
       // Bolt's event type is the full MessageEvent union (17+ subtypes).
       // We filter on subtype first, then narrow to the two types we handle.
       const subtype = (event as { subtype?: string }).subtype;
-      if (subtype && subtype !== 'bot_message') return;
+      if (subtype && subtype !== 'bot_message' && subtype !== 'file_share')
+        return;
 
       // After filtering, event is either GenericMessageEvent or BotMessageEvent
       const msg = event as HandledMessageEvent;
+      const files = (event as any).files as
+        | Array<{
+            name?: string;
+            mimetype?: string;
+            url_private_download?: string;
+            size?: number;
+          }>
+        | undefined;
 
-      if (!msg.text) return;
+      // Allow messages with files even if text is empty
+      if (!msg.text && (!files || files.length === 0)) return;
 
       // Threaded replies are flattened into the channel conversation.
       // The agent sees them alongside channel-level messages; responses
@@ -114,7 +165,7 @@ export class SlackChannel implements Channel {
       // Translate Slack <@UBOTID> mentions into TRIGGER_PATTERN format.
       // Slack encodes @mentions as <@U12345>, which won't match TRIGGER_PATTERN
       // (e.g., ^@<ASSISTANT_NAME>\b), so we prepend the trigger when the bot is @mentioned.
-      let content = msg.text;
+      let content = msg.text || '';
       if (this.botUserId && !isBotMessage) {
         const mentionPattern = `<@${this.botUserId}>`;
         if (
@@ -122,6 +173,22 @@ export class SlackChannel implements Channel {
           !TRIGGER_PATTERN.test(content)
         ) {
           content = `@${ASSISTANT_NAME} ${content}`;
+        }
+      }
+
+      // Download attached files to the group folder
+      if (files?.length && !isBotMessage) {
+        const group = groups[jid];
+        for (const file of files) {
+          if (!file.url_private_download || !file.name) continue;
+          const localPath = await this.downloadFile(
+            file.url_private_download,
+            file.name,
+            group.folder,
+          );
+          if (localPath) {
+            content += `\n[File: ${file.name} (${file.mimetype || 'unknown'})] saved to ${localPath}`;
+          }
         }
       }
 
