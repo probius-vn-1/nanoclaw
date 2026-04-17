@@ -16,13 +16,13 @@ import {
   IDLE_TIMEOUT,
 } from './config.js';
 import { ContainerInput, ContainerOutput } from './container-runner.js';
-import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
-// Fallback keyword list used when the classifier API call fails.
+// Keywords that route to the host runner (instant, no API call).
 const HOST_KEYWORDS = [
+  '@host',
   'browser',
   'chrome',
   'safari',
@@ -60,31 +60,19 @@ const HOST_KEYWORDS = [
   '~/documents',
   'linkedin',
   'linkedin.com',
+  'mia',
+  'recruiter',
+  'recruiting',
+  'recruitment',
+  'candidate',
+  'candidates',
+  'hiring',
 ];
 
 function keywordClassify(prompt: string): 'container' | 'host' {
   const lower = prompt.toLowerCase();
   return HOST_KEYWORDS.some((kw) => lower.includes(kw)) ? 'host' : 'container';
 }
-
-const CLASSIFIER_RULES_FILE = path.join(
-  GROUPS_DIR,
-  'global',
-  'runner-classifier.md',
-);
-
-const CLASSIFIER_SYSTEM_DEFAULT = `You are a routing classifier for an AI assistant.
-Decide whether the user's request requires running natively on a macOS host, or can run inside a sandboxed Linux container.
-
-Choose "host" when the task needs:
-- A real web browser (browsing, clicking, filling forms, screenshots of live pages)
-- macOS GUI apps (Finder, System Settings, AppleScript, menu bar, etc.)
-- Local user files outside the workspace (~/Downloads, ~/Desktop, ~/Documents)
-- Screen capture or desktop automation
-
-Choose "container" for everything else: coding, analysis, writing, API calls, file editing within the project, general knowledge questions.
-
-Reply with ONLY a JSON object, nothing else: {"runner":"host"} or {"runner":"container"}`;
 
 const HOST_CAPABILITIES_FILE = path.join(
   GROUPS_DIR,
@@ -100,73 +88,14 @@ function loadHostCapabilities(): string | null {
   }
 }
 
-function loadClassifierSystem(): string {
-  try {
-    const rules = fs.readFileSync(CLASSIFIER_RULES_FILE, 'utf-8');
-    return `You are a routing classifier for an AI assistant.
-The following rules determine which runner to use:
-
-${rules}
-
-Reply with ONLY a JSON object, nothing else: {"runner":"host"} or {"runner":"container"}`;
-  } catch {
-    return CLASSIFIER_SYSTEM_DEFAULT;
-  }
-}
-
 /**
  * Classify whether a prompt should run on the host or in a container.
- * Uses a Sonnet call with a dedicated API key (CLASSIFIER_API_KEY);
- * falls back to keyword matching if the key is missing or the call fails.
+ * Uses instant keyword matching — no API call overhead.
  */
 export async function classifyRunner(
   prompt: string,
   _proxyPort: number,
 ): Promise<'container' | 'host'> {
-  try {
-    const secrets = readEnvFile(['CLASSIFIER_API_KEY']);
-    const apiKey = secrets.CLASSIFIER_API_KEY;
-    if (!apiKey) throw new Error('CLASSIFIER_API_KEY not set');
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 20,
-        system: loadClassifierSystem(),
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timer);
-
-    if (!res.ok) throw new Error(`Classifier HTTP ${res.status}`);
-
-    const data = (await res.json()) as {
-      content?: Array<{ type: string; text?: string }>;
-    };
-    const text =
-      data.content?.find((b) => b.type === 'text')?.text?.trim() ?? '';
-    const parsed = JSON.parse(text) as { runner?: string };
-    if (parsed.runner === 'host' || parsed.runner === 'container') {
-      return parsed.runner;
-    }
-  } catch (err) {
-    logger.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      'Runner classifier API failed, falling back to keyword matching',
-    );
-  }
-
   return keywordClassify(prompt);
 }
 
@@ -217,13 +146,13 @@ export async function runHostAgent(
   const claudeBin = findClaudeBinary();
   const runId = `host-${group.folder}-${Date.now()}`;
 
-  // Sync agents from container/agents/ into the group's .claude/agents/
-  const agentsSrc = path.join(process.cwd(), 'container', 'agents');
+  // Sync agents from the group's own agents/ folder into .claude/agents/
+  const groupAgentsDir = path.join(groupDir, 'agents');
   const agentsDst = path.join(groupDir, '.claude', 'agents');
-  if (fs.existsSync(agentsSrc)) {
+  if (fs.existsSync(groupAgentsDir)) {
     fs.mkdirSync(agentsDst, { recursive: true });
-    for (const agentFile of fs.readdirSync(agentsSrc)) {
-      const srcFile = path.join(agentsSrc, agentFile);
+    for (const agentFile of fs.readdirSync(groupAgentsDir)) {
+      const srcFile = path.join(groupAgentsDir, agentFile);
       if (!fs.statSync(srcFile).isFile()) continue;
       fs.copyFileSync(srcFile, path.join(agentsDst, agentFile));
     }

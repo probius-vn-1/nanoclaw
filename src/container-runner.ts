@@ -177,13 +177,13 @@ function buildVolumeMounts(
     }
   }
 
-  // Sync agents from container/agents/ into each group's .claude/agents/
-  const agentsSrc = path.join(process.cwd(), 'container', 'agents');
+  // Sync agents from the group's own agents/ folder into .claude/agents/
+  const groupAgentsDir = path.join(resolveGroupFolderPath(group.folder), 'agents');
   const agentsDst = path.join(groupSessionsDir, 'agents');
-  if (fs.existsSync(agentsSrc)) {
+  if (fs.existsSync(groupAgentsDir)) {
     fs.mkdirSync(agentsDst, { recursive: true });
-    for (const agentFile of fs.readdirSync(agentsSrc)) {
-      const srcFile = path.join(agentsSrc, agentFile);
+    for (const agentFile of fs.readdirSync(groupAgentsDir)) {
+      const srcFile = path.join(groupAgentsDir, agentFile);
       if (!fs.statSync(srcFile).isFile()) continue;
       fs.copyFileSync(srcFile, path.join(agentsDst, agentFile));
     }

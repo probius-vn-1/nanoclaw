@@ -48,6 +48,11 @@ COPY agent-runner/ ./
 # Build TypeScript
 RUN npm run build
 
+# Pre-compile agent-runner for fast startup (skips tsc at runtime)
+RUN npx tsc --outDir /app/dist 2>&1 >&2 && \
+    ln -s /app/node_modules /app/dist/node_modules && \
+    chmod -R a-w /app/dist
+
 # Install pdf-reader CLI
 COPY skills/pdf-reader/pdf-reader /usr/local/bin/pdf-reader
 RUN chmod +x /usr/local/bin/pdf-reader
@@ -62,7 +67,7 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 # Apple Container only supports directory mounts (VirtioFS), so .env cannot be
 # shadowed with a host-side /dev/null file mount. Instead the entrypoint starts
 # as root, uses mount --bind to shadow .env, then drops to the host user via setpriv.
-RUN printf '#!/bin/bash\nset -e\n\n# Shadow .env so the agent cannot read host secrets (requires root)\nif [ "$(id -u)" = "0" ] && [ -f /workspace/project/.env ]; then\n  mount --bind /dev/null /workspace/project/.env\nfi\n\n# Compile agent-runner\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\n\n# Capture stdin (secrets JSON) to temp file\ncat > /tmp/input.json\n\n# Drop privileges if running as root (main-group containers)\nif [ "$(id -u)" = "0" ] && [ -n "$RUN_UID" ]; then\n  chown "$RUN_UID:$RUN_GID" /tmp/input.json /tmp/dist\n  exec setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups -- node /tmp/dist/index.js < /tmp/input.json\nfi\n\nexec node /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\n\n# Shadow .env so the agent cannot read host secrets (requires root)\nif [ "$(id -u)" = "0" ] && [ -f /workspace/project/.env ]; then\n  mount --bind /dev/null /workspace/project/.env\nfi\n\n# Use pre-compiled agent-runner; recompile only if mounted source is newer\nDIST=/app/dist\nif [ -f /app/src/index.ts ] && [ /app/src/index.ts -nt /app/dist/index.js ]; then\n  DIST=/tmp/dist\n  cd /app && npx tsc --outDir "$DIST" 2>&1 >&2\n  ln -s /app/node_modules "$DIST/node_modules"\n  chmod -R a-w "$DIST"\nfi\n\n# Capture stdin (secrets JSON) to temp file\ncat > /tmp/input.json\n\n# Drop privileges if running as root (main-group containers)\nif [ "$(id -u)" = "0" ] && [ -n "$RUN_UID" ]; then\n  chown "$RUN_UID:$RUN_GID" /tmp/input.json "$DIST"\n  exec setpriv --reuid="$RUN_UID" --regid="$RUN_GID" --clear-groups -- node "$DIST/index.js" < /tmp/input.json\nfi\n\nexec node "$DIST/index.js" < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node

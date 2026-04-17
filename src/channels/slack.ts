@@ -99,11 +99,17 @@ export class SlackChannel implements Channel {
         throw new Error(`Download HTTP ${res.status}`);
       }
 
-      await pipeline(Readable.fromWeb(res.body as any), fs.createWriteStream(destPath));
+      await pipeline(
+        Readable.fromWeb(res.body as any),
+        fs.createWriteStream(destPath),
+      );
       logger.info({ filename: safeName, groupFolder }, 'Slack file downloaded');
       return `attachments/${safeName}`;
     } catch (err) {
-      logger.error({ err, filename, groupFolder }, 'Failed to download Slack file');
+      logger.error(
+        { err, filename, groupFolder },
+        'Failed to download Slack file',
+      );
       return null;
     }
   }
