@@ -66,6 +66,12 @@ SECRET_KEYS = [
     "OLLAMA_HOST",
 ]
 
+CLAUDE_BINARY_CANDIDATES = [
+    Path.home() / ".local" / "bin" / "claude",
+    Path("/usr/local/bin/claude"),
+    Path("/opt/homebrew/bin/claude"),
+]
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def detect_runtime(preference: str | None) -> str:
@@ -78,6 +84,26 @@ def detect_runtime(preference: str | None) -> str:
             dbg(f"runtime: auto-detected {rt} at {result.stdout.decode().strip()}")
             return rt
     sys.exit("error: neither 'container' nor 'docker' found. Install one or pass --runtime.")
+
+
+def read_env_flag(env_file: Path, key: str) -> str | None:
+    if not env_file.exists():
+        return None
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        if k.strip() == key:
+            return v.strip().strip('"').strip("'")
+    return None
+
+
+def find_claude_binary() -> str:
+    for candidate in CLAUDE_BINARY_CANDIDATES:
+        if candidate.exists():
+            return str(candidate)
+    return "claude"  # fall back to PATH
 
 
 def read_secrets(env_file: Path) -> dict:
@@ -270,6 +296,111 @@ def run_container(runtime: str, image: str, payload: dict,
         sys.exit(proc.returncode)
 
 
+def run_host(prompt: str, folder: str, session_id: str | None,
+             timeout: int, use_chrome: bool) -> None:
+    """Run claude CLI directly on the host, mirroring src/host-runner.ts."""
+    group_dir = NANOCLAW_DIR / "groups" / folder
+    group_dir.mkdir(parents=True, exist_ok=True)
+
+    claude_bin = find_claude_binary()
+    args = [
+        claude_bin, "-p",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--dangerously-skip-permissions",
+    ]
+    if use_chrome:
+        args.append("--chrome")
+    if session_id:
+        args += ["--resume", session_id]
+
+    dbg(f"host cmd: {' '.join(args)}")
+    dbg(f"cwd: {group_dir}")
+
+    # Ensure PATH includes typical tool locations for the spawned claude process
+    env = os.environ.copy()
+    path_parts = [
+        "/usr/sbin", "/usr/bin", "/bin",
+        "/usr/local/bin", "/opt/homebrew/bin",
+        str(Path.home() / ".local" / "bin"),
+        env.get("PATH", ""),
+    ]
+    env["PATH"] = ":".join(p for p in path_parts if p)
+
+    proc = subprocess.Popen(
+        args,
+        cwd=str(group_dir),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    proc.stdin.write(prompt.encode())
+    proc.stdin.close()
+
+    final_result: str | None = None
+    new_session_id: str | None = None
+    line_buffer = ""
+    stderr_tail: list[str] = []
+    done = threading.Event()
+
+    def stream_stderr():
+        for raw in proc.stderr:
+            line = raw.decode(errors="replace").rstrip()
+            stderr_tail.append(line)
+            if len(stderr_tail) > 50:
+                stderr_tail.pop(0)
+            if VERBOSE:
+                print(line, file=sys.stderr)
+
+    def stream_stdout():
+        nonlocal final_result, new_session_id, line_buffer
+        for raw in proc.stdout:
+            chunk = raw.decode(errors="replace")
+            line_buffer += chunk
+            lines = line_buffer.split("\n")
+            line_buffer = lines.pop()  # keep incomplete trailing fragment
+            for line in lines:
+                trimmed = line.strip()
+                if not trimmed:
+                    continue
+                try:
+                    event = json.loads(trimmed)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("session_id") and not new_session_id:
+                    new_session_id = event["session_id"]
+                if event.get("type") == "result":
+                    new_session_id = event.get("session_id") or new_session_id
+                    if not event.get("is_error") and event.get("result"):
+                        final_result = event["result"]
+        done.set()
+
+    t_err = threading.Thread(target=stream_stderr, daemon=True)
+    t_out = threading.Thread(target=stream_stdout, daemon=True)
+    t_err.start()
+    t_out.start()
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        sys.exit(f"error: host agent timed out after {timeout}s")
+
+    done.wait(timeout=5)
+    t_err.join(timeout=5)
+    t_out.join(timeout=5)
+
+    if proc.returncode != 0:
+        tail = "\n".join(stderr_tail[-10:])
+        sys.exit(f"error: claude exited with code {proc.returncode}\n{tail}")
+
+    if final_result is not None:
+        print(final_result)
+    if new_session_id:
+        print(f"\n[session: {new_session_id}]", file=sys.stderr)
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -286,6 +417,13 @@ def main():
     parser.add_argument("--runtime", choices=["docker", "container"],
                         help="Container runtime (default: auto-detect)")
     parser.add_argument("--image", default=IMAGE, help=f"Container image (default: {IMAGE})")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--host", dest="mode", action="store_const", const="host",
+                      help="Run claude CLI on the host (no container)")
+    mode.add_argument("--container", dest="mode", action="store_const", const="container",
+                      help="Force container mode even if CONTAINERS_ENABLED=false")
+    parser.add_argument("--chrome", action="store_true",
+                        help="Enable Chrome extension tools in host mode (adds ~3s startup)")
     parser.add_argument("--list-groups", action="store_true", help="List registered groups and exit")
     parser.add_argument("--raw", action="store_true", help="Print raw JSON output")
     parser.add_argument("--timeout", type=int, default=300, metavar="SECS",
@@ -345,6 +483,22 @@ def main():
             is_main = True
         else:
             sys.exit("error: no group specified and no main group found. Use -g or -j.")
+
+    # Mode: explicit flag wins, else read CONTAINERS_ENABLED from .env
+    # (false/unset → host; true → container, matching src/config.ts)
+    mode = args.mode
+    if mode is None:
+        flag = read_env_flag(ENV_FILE, "CONTAINERS_ENABLED")
+        mode = "container" if flag == "true" else "host"
+        dbg(f"mode: auto-selected '{mode}' (CONTAINERS_ENABLED={flag!r})")
+
+    if mode == "host":
+        if not group_folder:
+            sys.exit("error: host mode requires a group folder (use -g or register a main group).")
+        print(f"[{group_name or jid}] running via host...", file=sys.stderr)
+        run_host(prompt, group_folder, args.session,
+                 timeout=args.timeout, use_chrome=args.chrome)
+        return
 
     runtime = detect_runtime(args.runtime)
     secrets = read_secrets(ENV_FILE)

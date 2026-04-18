@@ -2,7 +2,7 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -112,6 +112,20 @@ function buildVolumeMounts(
         readonly: false,
       });
     }
+
+    // SSH credentials for the main group — enables git push to mounted repos
+    // and gh operations against GitHub. The mount-security module hard-blocks
+    // .ssh in user-facing additionalMounts (by design), so this has to be a
+    // core mount gated by isMain. Read-only: the container should never write
+    // to the host's SSH directory.
+    const sshDir = path.join(os.homedir(), '.ssh');
+    if (fs.existsSync(sshDir)) {
+      mounts.push({
+        hostPath: sshDir,
+        containerPath: '/home/node/.ssh',
+        readonly: true,
+      });
+    }
   } else {
     // Other groups only get their own folder
     mounts.push({
@@ -178,7 +192,10 @@ function buildVolumeMounts(
   }
 
   // Sync agents from the group's own agents/ folder into .claude/agents/
-  const groupAgentsDir = path.join(resolveGroupFolderPath(group.folder), 'agents');
+  const groupAgentsDir = path.join(
+    resolveGroupFolderPath(group.folder),
+    'agents',
+  );
   const agentsDst = path.join(groupSessionsDir, 'agents');
   if (fs.existsSync(groupAgentsDir)) {
     fs.mkdirSync(agentsDst, { recursive: true });
@@ -291,9 +308,40 @@ function buildContainerArgs(
   }
 
   // Inject third-party service tokens from .env into the container
-  const serviceTokens = readEnvFile(['NOTION_API_TOKEN']);
+  const serviceTokens = readEnvFile(['NOTION_API_TOKEN', 'GH_TOKEN']);
   if (serviceTokens.NOTION_API_TOKEN) {
     args.push('-e', `NOTION_API_TOKEN=${serviceTokens.NOTION_API_TOKEN}`);
+  }
+  // GH_TOKEN enables `gh` CLI and the GitHub REST API (PR creation, etc.)
+  // inside the container. Main group only — other groups have no use for it
+  // and the main group is the only one that mounts SSH keys for git anyway.
+  if (isMain && serviceTokens.GH_TOKEN) {
+    args.push('-e', `GH_TOKEN=${serviceTokens.GH_TOKEN}`);
+  }
+
+  // Git identity for commits from within the main container. Sourced from
+  // the host's git config so commits carry the same identity the user uses
+  // locally. Env vars take precedence over any gitconfig inside the container.
+  if (isMain) {
+    try {
+      const name = execSync('git config --global user.name', { timeout: 2000 })
+        .toString()
+        .trim();
+      const email = execSync('git config --global user.email', {
+        timeout: 2000,
+      })
+        .toString()
+        .trim();
+      if (name && email) {
+        args.push('-e', `GIT_AUTHOR_NAME=${name}`);
+        args.push('-e', `GIT_AUTHOR_EMAIL=${email}`);
+        args.push('-e', `GIT_COMMITTER_NAME=${name}`);
+        args.push('-e', `GIT_COMMITTER_EMAIL=${email}`);
+      }
+    } catch {
+      // git not installed on host, or no global config — engineer will
+      // need to set identity manually if they want to commit from container
+    }
   }
 
   // Runtime-specific args for host gateway resolution

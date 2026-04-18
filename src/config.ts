@@ -18,7 +18,10 @@ export const ASSISTANT_NAME =
 export const ASSISTANT_HAS_OWN_NUMBER =
   (process.env.ASSISTANT_HAS_OWN_NUMBER ||
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
-export const POLL_INTERVAL = 2000;
+export const POLL_INTERVAL = parseInt(
+  process.env.POLL_INTERVAL || '1000',
+  10,
+);
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
 // Absolute paths needed for container mounts
@@ -41,6 +44,11 @@ export const SENDER_ALLOWLIST_PATH = path.join(
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+
+// Master switch for the container runner. When false, all agent runs go to
+// the host runner, the Apple Container runtime is never started, and the
+// task scheduler also routes to the host. Flip to 'true' to restore containers.
+export const CONTAINERS_ENABLED = process.env.CONTAINERS_ENABLED === 'true';
 
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';

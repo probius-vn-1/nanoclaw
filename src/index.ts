@@ -5,6 +5,7 @@ import { OneCLI } from '@onecli-sh/sdk';
 
 import {
   ASSISTANT_NAME,
+  CONTAINERS_ENABLED,
   CREDENTIAL_PROXY_PORT,
   DEFAULT_TRIGGER,
   getTriggerPattern,
@@ -85,6 +86,7 @@ const queue = new GroupQueue();
 const onecli = new OneCLI({ url: ONECLI_URL });
 
 function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
+  if (!CONTAINERS_ENABLED) return; // OneCLI agents only feed the container credential proxy
   if (group.isMain) return;
   const identifier = group.folder.toLowerCase().replace(/_/g, '-');
   onecli.ensureAgent({ name: group.name, identifier }).then(
@@ -386,7 +388,8 @@ async function runAgent(
       }
     : undefined;
 
-  const runnerType = group.containerConfig?.runnerType ?? 'container';
+  const configuredRunner = group.containerConfig?.runnerType ?? 'container';
+  const runnerType = CONTAINERS_ENABLED ? configuredRunner : 'host';
   const resolvedRunner =
     runnerType === 'dynamic'
       ? await classifyRunner(prompt, CREDENTIAL_PROXY_PORT)
@@ -582,23 +585,32 @@ function recoverPendingMessages(): void {
 }
 
 function ensureContainerSystemRunning(): void {
+  if (!CONTAINERS_ENABLED) {
+    logger.info('Containers disabled — skipping container runtime startup');
+    return;
+  }
   ensureContainerRuntimeRunning();
   cleanupOrphans();
 }
 
 async function main(): Promise<void> {
   ensureContainerSystemRunning();
-  await startCredentialProxy(CREDENTIAL_PROXY_PORT, PROXY_BIND_HOST);
-  logger.info(
-    { host: PROXY_BIND_HOST, port: CREDENTIAL_PROXY_PORT },
-    'Credential proxy listening',
-  );
+  if (CONTAINERS_ENABLED) {
+    await startCredentialProxy(CREDENTIAL_PROXY_PORT, PROXY_BIND_HOST);
+    logger.info(
+      { host: PROXY_BIND_HOST, port: CREDENTIAL_PROXY_PORT },
+      'Credential proxy listening',
+    );
+  } else {
+    logger.info('Containers disabled — skipping credential proxy');
+  }
   initDatabase();
   logger.info('Database initialized');
   loadState();
 
   // Ensure OneCLI agents exist for all registered groups.
   // Recovers from missed creates (e.g. OneCLI was down at registration time).
+  // No-op when containers are disabled (ensureOneCLIAgent short-circuits).
   for (const [jid, group] of Object.entries(registeredGroups)) {
     ensureOneCLIAgent(jid, group);
   }

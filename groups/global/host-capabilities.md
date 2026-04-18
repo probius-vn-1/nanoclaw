@@ -20,7 +20,7 @@ These tools are available for interacting with Chrome:
 - `evaluate_script` — run JavaScript in the page context
 - `hover`, `drag`, `upload_file`, `resize_page` — additional interaction tools
 
-Chrome must be running for these tools to work. If the extension disconnects, retry.
+Chrome must be running for these tools to work. If a browser tool fails because the extension is disconnected or Chrome isn't running, launch it yourself with `open -a "Google Chrome"` (wait ~2s after launch before retrying the tool). A background keepalive also starts Chrome every 60s, so this is rarely needed.
 
 ## Local files
 

@@ -1,21 +1,18 @@
 # Agent Session
 
-Work directly with a NanoClaw agent (e.g., Mia) in Claude Code, then sync what was learned back to NanoClaw.
+Work directly with a NanoClaw sub-agent in Claude Code, then sync what was learned back to NanoClaw.
 
-Triggers on: "work with mia", "talk to mia", "agent session", "open mia", "recruit session", "work with recruiter"
+Triggers on: "agent session", "work with agent", "open agent"
 
 ## Step 1: Pick the agent
 
 List available agents:
 
 ```bash
-ls container/agents/
+ls groups/slack_main/agents/ groups/slack_main/.claude/agents/ 2>/dev/null
 ```
 
-If the user already specified an agent (e.g., "work with Mia"), match it. Otherwise, use AskUserQuestion to let them pick.
-
-Map agent names to files:
-- Mia / recruiter → `container/agents/recruiter.md`
+If the user already specified an agent, match it. Otherwise, use AskUserQuestion to let them pick.
 
 ## Step 2: Pick the group context
 
@@ -33,7 +30,7 @@ Do NOT launch a subprocess or a new `claude` session. Instead, **adopt the agent
 Read the agent file:
 
 ```bash
-cat container/agents/{agent}.md
+cat groups/slack_main/agents/{agent}.md
 ```
 
 Read the group's CLAUDE.md for context:
@@ -57,7 +54,7 @@ Then tell the user:
 From this point forward:
 - Follow the agent's persona and instructions from the agent file
 - Read/write files in `groups/{folder}/` for persistence
-- Use the agent's skills (e.g., `/linkedin`, `/notion-tool`, `/vizonare-context` for Mia)
+- Use the agent's skills as listed in the agent file
 - Any files you create or knowledge you capture goes directly into the group folder — it's automatically available to the NanoClaw container agent next time it runs
 
 ## Step 4: Ending the session

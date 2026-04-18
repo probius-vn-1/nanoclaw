@@ -6,7 +6,7 @@ These rules determine whether an incoming message is routed to the **host runner
 ## Use the host runner when the task needs:
 
 - A real web browser — live browsing, clicking, form submission, screenshots of live pages
-- **LinkedIn browsing or any recruiting task that uses the LinkedIn skill** — the `/linkedin` skill requires Chrome with the CEO's logged-in session; always route to host
+- **LinkedIn browsing** — the `/linkedin` skill requires Chrome with a logged-in session; always route to host
 - macOS GUI apps — Finder, System Settings, AppleScript, menu bar, Dock, desktop automation
 - Local user files outside the project workspace — ~/Downloads, ~/Desktop, ~/Documents, ~/Pictures
 - Screen capture or window control

@@ -16,6 +16,7 @@ import {
   IDLE_TIMEOUT,
 } from './config.js';
 import { ContainerInput, ContainerOutput } from './container-runner.js';
+import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -60,13 +61,6 @@ const HOST_KEYWORDS = [
   '~/documents',
   'linkedin',
   'linkedin.com',
-  'mia',
-  'recruiter',
-  'recruiting',
-  'recruitment',
-  'candidate',
-  'candidates',
-  'hiring',
 ];
 
 function keywordClassify(prompt: string): 'container' | 'host' {
@@ -99,22 +93,10 @@ export async function classifyRunner(
   return keywordClassify(prompt);
 }
 
-async function ensureChrome(): Promise<void> {
-  const { execSync } = await import('child_process');
-  try {
-    execSync('pgrep -x "Google Chrome"', { stdio: 'ignore' });
-  } catch {
-    // Chrome not running — launch it
-    logger.info('Chrome not running, launching it for host agent');
-    const { spawn: spawnProc } = await import('child_process');
-    spawnProc('open', ['-a', 'Google Chrome'], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref();
-    // Give Chrome a moment to initialize before the claude process connects
-    await new Promise((r) => setTimeout(r, 3000));
-  }
-}
+// Chrome lifecycle: not our job at spawn time. The com.nanoclaw.chrome-keepalive
+// LaunchAgent pings Chrome every 60s, and the agent itself can `open -a "Google Chrome"`
+// on demand if the extension is disconnected when a browser tool is called. Skipping
+// a preflight check here avoids a 3s cold-start penalty on every run.
 
 // Candidate locations for the claude CLI binary
 const CLAUDE_BINARY_CANDIDATES = [
@@ -157,9 +139,6 @@ export async function runHostAgent(
       fs.copyFileSync(srcFile, path.join(agentsDst, agentFile));
     }
   }
-
-  // -p with no inline prompt reads from stdin
-  await ensureChrome();
 
   const hostCapabilities = loadHostCapabilities();
   const ipcMessagesDir = path.join(DATA_DIR, 'ipc', group.folder, 'messages');
@@ -205,6 +184,12 @@ export async function runHostAgent(
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        // Third-party API tokens from .env (launchd env doesn't load .env).
+        // Needed by host-runner skills that call upstream APIs directly —
+        // e.g. vizonare:notion-tool scripts that curl api.notion.com with
+        // NOTION_API_TOKEN. Keep this list narrow; only tokens the host
+        // agents actually need.
+        ...readEnvFile(['NOTION_API_TOKEN']),
         HOME: os.homedir(),
         // Ensure all system tools are reachable (screencapture, node, brew, etc.)
         PATH: [
